@@ -1,11 +1,30 @@
-```c
+#include <stdlib.h>
+#include <stdio.h>
+#include <pcap.h>
+#include <arpa/inet.h>
+
+
+/* Ethernet header */
 struct ethheader {
-...
+    u_char  ether_dhost[6]; /* destination host address */
+    u_char  ether_shost[6]; /* source host address */
+    u_short ether_type;     /* protocol type (IP, ARP, RARP, etc) */
 };
 
 /* IP Header */
 struct ipheader {
-...
+    unsigned char      iph_ihl : 4, //IP header length
+        iph_ver : 4; //IP version
+    unsigned char      iph_tos; //Type of service
+    unsigned short int iph_len; //IP Packet length (data + header)
+    unsigned short int iph_ident; //Identification
+    unsigned short int iph_flag : 3, //Fragmentation flags
+        iph_offset : 13; //Flags offset
+    unsigned char      iph_ttl; //Time to Live
+    unsigned char      iph_protocol; //Protocol type
+    unsigned short int iph_chksum; //IP datagram checksum
+    struct  in_addr    iph_sourceip; //Source IP address
+    struct  in_addr    iph_destip;   //Destination IP address
 };
 
 /* TCP Header */
@@ -30,37 +49,7 @@ struct tcpheader {
     u_short tcp_sum;                 /* checksum */
     u_short tcp_urp;                 /* urgent pointer */
 };
-```
 
- Ethernet, IP, TCP 헤더를 구현하는 구조체입니다. myheader.h에서 가져와서 구현했습니다. 
-
-```c
-int main()
-{
-    pcap_t* handle;
-    char errbuf[PCAP_ERRBUF_SIZE];
-    struct bpf_program fp;
-    char filter_exp[] = "tcp";
-    bpf_u_int32 net;
-
-    handle = pcap_open_live("eth0", BUFSIZ, 1, 1000, errbuf);
-
-    pcap_compile(handle, &fp, filter_exp, 0, net);
-    if (pcap_setfilter(handle, &fp) != 0) {
-        pcap_perror(handle, "Error:");
-        exit(EXIT_FAILURE);
-    }
-
-    pcap_loop(handle, -1, got_packet, NULL);
-
-    pcap_close(handle);
-    return 0;
-}
-```
-
-sniff_improved.c에서 가져와서 만들었습니다. 여기 코드에서는 pcap 세션을 열고 tcp 패킷만 필터링하도록 컴파일 한 후 패킷이 캡쳐되었을 때 got_packet을 콜백 합니다. 
-
-```c
 void got_packet(u_char* args, const struct pcap_pkthdr* header, const u_char* packet)
 {
     struct ethheader* eth = (struct ethheader*)packet;
@@ -100,7 +89,26 @@ void got_packet(u_char* args, const struct pcap_pkthdr* header, const u_char* pa
             printf("\n");
         }
     }
-}
-```
+}   
 
-MAC주소 출력은 콜백 함수의 인자인 packet을 사용해여 ethheader로 SRC MAC, DST MAC 주소를 추출 했습니다. IP 주소 출력은 packet을 ethheader 구조체크기 만큼 더한 후 ipheader 로 받아옵니다. 그리고 inet_ntoa 함수를 사용해서 IP 주소를 보기 쉬운 형태로 만들어준 다음에 출력 합니다. 포트는 tcp 헤더에 있기 때문에 packet에 ethheader 구조체 사이즈 + ip헤더 길이(ip헤더 실제의 길이는 ip헤서의 써있는 길이의 4배 이기에 * 4) 를 더한 것에 tcpheader 로 받아옵니다. 그다음 빅엔디안으로 저장 되어있는 port를 ntohs로 리틀엔디안으로 바꿔서 출력합니다. 마지막으로는 message 를 가져와보겠습니다. message의 내용을 가져오려먼 packet에 tcp헤더 위치까지 더하고 tcp offset만큼 더하면 됩니다. tcp offset은 TH_OFF를 사용해서 구할 수 있습니다. 여기서 추가로 message가 일정 길이만 출력되도록 하려면 message 길이를 알아야하는데 이것은 ip헤더의 ip패킷 전체길이를 받아오고 ip헤더 크기랑 tcp off를 빼면 message 길이를 얻을 수 있습니다.
+int main()
+{
+    pcap_t* handle;
+    char errbuf[PCAP_ERRBUF_SIZE];
+    struct bpf_program fp;
+    char filter_exp[] = "tcp";
+    bpf_u_int32 net;
+
+    handle = pcap_open_live("eth0", BUFSIZ, 1, 1000, errbuf);
+
+    pcap_compile(handle, &fp, filter_exp, 0, net);
+    if (pcap_setfilter(handle, &fp) != 0) {
+        pcap_perror(handle, "Error:");
+        exit(EXIT_FAILURE);
+    }
+
+    pcap_loop(handle, -1, got_packet, NULL);
+
+    pcap_close(handle);
+    return 0;
+}
